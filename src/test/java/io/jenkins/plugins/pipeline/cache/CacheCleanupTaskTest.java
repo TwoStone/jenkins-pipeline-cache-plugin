@@ -1,14 +1,7 @@
 package io.jenkins.plugins.pipeline.cache;
 
-import static java.util.stream.Collectors.toList;
-import static java.util.stream.IntStream.range;
-
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.is;
-
-import java.util.List;
-import java.util.UUID;
-
+import hudson.util.Secret;
+import hudson.util.StreamTaskListener;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
@@ -18,8 +11,13 @@ import org.junit.Test;
 import org.jvnet.hudson.test.BuildWatcher;
 import org.jvnet.hudson.test.JenkinsRule;
 
-import hudson.util.Secret;
-import hudson.util.StreamTaskListener;
+import java.util.List;
+import java.util.UUID;
+
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.IntStream.range;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 
 /**
  * Checks that the cache eviction works as expected. Each test starts with an empty bucket.

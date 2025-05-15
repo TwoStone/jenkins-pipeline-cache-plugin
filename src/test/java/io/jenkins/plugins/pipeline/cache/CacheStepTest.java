@@ -1,8 +1,7 @@
 package io.jenkins.plugins.pipeline.cache;
 
-import java.io.IOException;
-import java.util.UUID;
-
+import hudson.model.Result;
+import hudson.util.Secret;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
@@ -13,8 +12,7 @@ import org.junit.Test;
 import org.jvnet.hudson.test.BuildWatcher;
 import org.jvnet.hudson.test.JenkinsRule;
 
-import hudson.model.Result;
-import hudson.util.Secret;
+import java.util.UUID;
 
 /**
  * Checks that the cache step works as expected in pipelines. Each test starts with an empty bucket and the cache is also registered to
@@ -74,7 +72,6 @@ public class CacheStepTest {
         // WHEN
         WorkflowRun b1 = executeWorkflow(p1);
         WorkflowRun b2 = executeWorkflow(p2);
-
         // THEN
         j.assertBuildStatusSuccess(b1);
         j.assertLogContains("Cache not restored (no such key found)", b1);
@@ -444,7 +441,7 @@ public class CacheStepTest {
         j.assertBuildStatusSuccess(b);
     }
 
-    private WorkflowJob createWorkflow(String script) throws IOException {
+    private WorkflowJob createWorkflow(String script) throws Exception {
         WorkflowJob p = j.createProject(WorkflowJob.class);
         p.setDefinition(new CpsFlowDefinition(script, true));
         return p;

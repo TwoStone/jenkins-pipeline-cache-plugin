@@ -105,7 +105,7 @@ public class CacheItemRepository {
             ObjectMetadata newMetadata = new ObjectMetadata();
             newMetadata.setUserMetadata(metadata.getUserMetadata());
             newMetadata.addUserMetadata(LAST_ACCESS, Long.toString(currentTime));
-
+            
             // HACK: the only way to change the metadata of an existing object is to create a copy to itself
             s3.copyObject(new CopyObjectRequest(bucket, key, bucket, key).withNewObjectMetadata(newMetadata));
         }

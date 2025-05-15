@@ -1,12 +1,11 @@
 package io.jenkins.plugins.pipeline.cache;
 
-import static java.lang.String.format;
+import com.github.dockerjava.api.command.InspectContainerResponse;
+import org.testcontainers.containers.GenericContainer;
 
 import java.io.IOException;
 
-import org.testcontainers.containers.GenericContainer;
-
-import com.github.dockerjava.api.command.InspectContainerResponse;
+import static java.lang.String.format;
 
 public class MinioMcContainer extends GenericContainer<MinioMcContainer> {
 

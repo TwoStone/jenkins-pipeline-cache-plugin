@@ -1,10 +1,10 @@
 package io.jenkins.plugins.pipeline.cache;
 
-import java.util.UUID;
-
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
+
+import java.util.UUID;
 
 public class MinioContainer extends GenericContainer<MinioContainer> {
 
