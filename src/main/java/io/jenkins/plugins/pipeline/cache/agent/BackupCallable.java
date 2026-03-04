@@ -1,17 +1,16 @@
 package io.jenkins.plugins.pipeline.cache.agent;
 
-import static java.lang.String.format;
+import hudson.FilePath;
+import hudson.remoting.VirtualChannel;
+import hudson.util.DirScanner;
+import io.jenkins.plugins.pipeline.cache.CacheConfiguration;
+import org.apache.commons.codec.digest.DigestUtils;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 
-import org.apache.commons.codec.digest.DigestUtils;
-
-import hudson.FilePath;
-import hudson.remoting.VirtualChannel;
-import hudson.util.DirScanner;
-import io.jenkins.plugins.pipeline.cache.CacheConfiguration;
+import static java.lang.String.format;
 
 /**
  * Creates a tar archive of a given {@link FilePath} and uploads it to S3.
@@ -66,7 +65,7 @@ public class BackupCallable extends AbstractMasterToAgentS3Callable {
             // create checksum
             byte[] md5 = DigestUtils.md5(tmp.read());
             // upload it to S3
-            try (OutputStream outToS3 = cacheItemRepository().createObjectOutputStream(key, md5)) {
+            try (OutputStream outToS3 = cacheItemRepository().createObjectOutputStream(key)) {
                 tmp.copyTo(outToS3);
             }
         } finally {

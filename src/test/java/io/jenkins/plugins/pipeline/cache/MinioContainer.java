@@ -9,7 +9,7 @@ import java.util.UUID;
 public class MinioContainer extends GenericContainer<MinioContainer> {
 
     public MinioContainer() {
-        this("minio/minio");
+        this("minio/minio:RELEASE.2024-10-02T17-50-41Z");
     }
 
     public MinioContainer(String dockerImageName) {

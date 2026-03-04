@@ -1,22 +1,20 @@
 package io.jenkins.plugins.pipeline.cache.s3;
 
-import static io.jenkins.plugins.pipeline.cache.s3.CacheItemRepository.CREATION;
-import static io.jenkins.plugins.pipeline.cache.s3.CacheItemRepository.LAST_ACCESS;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 import java.io.ByteArrayInputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
-import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
-import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
-import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.amazonaws.services.s3.model.PartETag;
-import com.amazonaws.services.s3.model.PutObjectRequest;
-import com.amazonaws.services.s3.model.UploadPartRequest;
-import com.amazonaws.services.s3.model.UploadPartResult;
+import static io.jenkins.plugins.pipeline.cache.s3.CacheItemRepository.CREATION;
+import static io.jenkins.plugins.pipeline.cache.s3.CacheItemRepository.LAST_ACCESS;
 
 /**
  * {@link OutputStream} which allows writing an object to S3 directly. If the content size is not greater than 10 MB then it is uploaded at
@@ -32,7 +30,7 @@ public class S3OutputStream extends OutputStream {
     /**
      * S3 client which is used to upload the content.
      */
-    private final AmazonS3 s3;
+    private final S3Client s3;
 
     /**
      * Name of the bucket where the object is stored.
@@ -43,12 +41,6 @@ public class S3OutputStream extends OutputStream {
      * Key which will be assigned to the object.
      */
     private final String key;
-
-    /**
-     * MD5 checksum of the object.
-     * @see ObjectMetadata#setContentMD5(String)
-     */
-    private final String md5;
 
     /**
      * The internal buffer where data is stored.
@@ -66,7 +58,7 @@ public class S3OutputStream extends OutputStream {
     /**
      * Holds the part IDs in case of a multipart upload.
      */
-    protected List<PartETag> partIDs = new ArrayList<>();
+    protected List<CompletedPart> completedParts = new ArrayList<>();
 
     /**
      * true indicates that the stream is still open, otherwise false.
@@ -76,35 +68,34 @@ public class S3OutputStream extends OutputStream {
     /**
      * Holds the result of the initial upload in case of a multipart upload.
      */
-    private InitiateMultipartUploadResult multipartUpload;
+    private CreateMultipartUploadResponse multipartUpload;
 
     /**
      * Creates a new buffered output stream to write data to S3.
-     * @param s3 the AmazonS3 client
+     *
+     * @param s3     the S3 client
      * @param bucket name of the bucket
-     * @param key key of the object within the bucket
-     * @param md5 MD5 checksum of the object (128bit, base64 encoded)
+     * @param key    key of the object within the bucket
      */
-    public S3OutputStream(AmazonS3 s3, String bucket, String key, String md5) {
-        this(s3, bucket, key, md5, BUFFER_SIZE);
+    public S3OutputStream(S3Client s3, String bucket, String key) {
+        this(s3, bucket, key, BUFFER_SIZE);
     }
 
     /**
      * Creates a new buffered output stream to write data to S3.
-     * @param s3 the AmazonS3 client
+     *
+     * @param s3     the S3 client
      * @param bucket name of the bucket
-     * @param key key of the object within the bucket
-     * @param md5 MD5 checksum of the object (128bit, base64 encoded)
-     * @param size size of the buffer
+     * @param key    key of the object within the bucket
+     * @param size   size of the buffer
      */
-    public S3OutputStream(AmazonS3 s3, String bucket, String key, String md5, int size) {
+    public S3OutputStream(S3Client s3, String bucket, String key, int size) {
         if (size <= 0) {
             throw new IllegalArgumentException("Buffer size <= 0");
         }
         this.s3 = s3;
         this.bucket = bucket;
         this.key = key;
-        this.md5 = md5;
         this.buf = new byte[size];
     }
 
@@ -117,13 +108,14 @@ public class S3OutputStream extends OutputStream {
         if (count >= buf.length) {
             flushAndReset();
         }
-        buf[count++] = (byte)b;
+        buf[count++] = (byte) b;
     }
 
     /**
      * Writes <code>len</code> bytes from the specified byte array
      * starting at offset <code>off</code> to this buffered output stream.
-     * @param b the data.
+     *
+     * @param b   the data.
      * @param off the start offset in the data.
      * @param len the number of bytes to write.
      */
@@ -147,21 +139,28 @@ public class S3OutputStream extends OutputStream {
 
         if (multipartUpload == null) {
             // initialize partial upload
-            multipartUpload = s3.initiateMultipartUpload(new InitiateMultipartUploadRequest(bucket, key)
-                    .withObjectMetadata(createMetadata(true)));
+            multipartUpload = s3.createMultipartUpload(builder ->
+                    builder.bucket(bucket)
+                            .key(key)
+                            .metadata(createMetadata())
+            );
         }
 
         // upload part
-        UploadPartResult uploadResult = s3.uploadPart(new UploadPartRequest()
-                .withBucketName(bucket)
-                .withKey(key)
-                .withUploadId(multipartUpload.getUploadId())
-                .withInputStream(new ByteArrayInputStream(buf, 0, count))
-                .withPartNumber(partIDs.size() + 1)
-                .withPartSize(count));
+        int partNumber = completedParts.size() + 1;
+        UploadPartResponse uploadPartResponse = s3.uploadPart(builder -> {
+            builder.bucket(bucket)
+                    .key(key)
+                    .uploadId(multipartUpload.uploadId())
+                    .partNumber(partNumber)
+                    .contentLength((long) count);
+        }, RequestBody.fromInputStream(new ByteArrayInputStream(buf, 0, count), count));
 
         // store part ID (required for the final step)
-        partIDs.add(uploadResult.getPartETag());
+        completedParts.add(CompletedPart.builder()
+                .partNumber(partNumber)
+                .eTag(uploadPartResponse.eTag())
+                .build());
 
         // reset count
         count = 0;
@@ -177,24 +176,28 @@ public class S3OutputStream extends OutputStream {
         // complete partial upload
         if (multipartUpload != null) {
             flushAndReset();
-            s3.completeMultipartUpload(new CompleteMultipartUploadRequest(bucket, key, multipartUpload.getUploadId(), partIDs));
+            s3.completeMultipartUpload(builder ->
+                    builder.bucket(bucket)
+                            .key(key)
+                            .uploadId(multipartUpload.uploadId())
+                            .multipartUpload(mb -> mb.parts(completedParts).build()));
         }
 
         // or upload content at once (content <= buffer size)
         else {
-            s3.putObject(new PutObjectRequest(bucket, key, new ByteArrayInputStream(buf, 0, count), createMetadata(false)));
+            s3.putObject(builder ->
+                    builder.bucket(bucket)
+                            .key(key)
+                            .metadata(createMetadata()),
+                    RequestBody.fromInputStream(new ByteArrayInputStream(buf, 0, count), count));
         }
     }
 
-    private ObjectMetadata createMetadata(boolean multipart) {
-        ObjectMetadata metadata = new ObjectMetadata();
-        metadata.setContentMD5(md5);
-        metadata.addUserMetadata(CREATION, Long.toString(System.currentTimeMillis()));
-        metadata.addUserMetadata(LAST_ACCESS, Long.toString(System.currentTimeMillis()));
+    private Map<String, String> createMetadata() {
+        Map<String, String> metadata = new HashMap<>();
 
-        if (!multipart) {
-            metadata.setContentLength(count);
-        }
+        metadata.put(CREATION, Long.toString(System.currentTimeMillis()));
+        metadata.put(LAST_ACCESS, Long.toString(System.currentTimeMillis()));
 
         return metadata;
     }

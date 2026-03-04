@@ -1,36 +1,33 @@
 package io.jenkins.plugins.pipeline.cache.s3;
 
-import static java.util.stream.Stream.concat;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
+import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.io.OutputStream;
+import java.net.URI;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Stream;
 
-import com.amazonaws.AmazonServiceException;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.CopyObjectRequest;
-import com.amazonaws.services.s3.model.DeleteObjectsRequest;
-import com.amazonaws.services.s3.model.GetObjectRequest;
-import com.amazonaws.services.s3.model.HeadBucketRequest;
-import com.amazonaws.services.s3.model.ObjectListing;
-import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.amazonaws.services.s3.model.S3Object;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
-
 public class CacheItemRepository {
 
-    static final String LAST_ACCESS = "LAST_ACCESS";
-    static final String CREATION = "CREATION";
+    static final String LAST_ACCESS = "last_access";
+    static final String CREATION = "creation";
     private static final long TIME_THRESHOLD = 5 * 60 * 1000L; // 5 minutes
 
-    private final AmazonS3 s3;
+    private final S3Client s3;
     private final String bucket;
 
     public CacheItemRepository(String username, String password, String region, String endpoint, String bucket) {
@@ -38,12 +35,12 @@ public class CacheItemRepository {
         this.bucket = bucket;
     }
 
-    protected AmazonS3 createS3Client(String username, String password, String endpoint, String region) {
-        return AmazonS3ClientBuilder
-                .standard()
-                .withPathStyleAccessEnabled(true)
-                .withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials(username, password)))
-                .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endpoint, region))
+    protected S3Client createS3Client(String username, String password, String endpoint, String region) {
+        return S3Client.builder()
+                .forcePathStyle(true)
+                .region(Region.of(region))
+                .endpointOverride(URI.create(endpoint))
+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(username, password)))
                 .build();
     }
 
@@ -51,44 +48,47 @@ public class CacheItemRepository {
      * Provides the total size of all cache items.
      */
     public long getTotalCacheSize() {
-        return Stream.of(s3.listObjects(bucket))
-                .flatMap(this::flatMapObjectSummaries)
-                .map(S3ObjectSummary::getSize)
-                .reduce(Long::sum)
-                .orElse(0L);
+        return s3.listObjectsV2Paginator(builder -> builder.bucket(bucket))
+                .stream()
+                .flatMap(r -> r.contents().stream())
+                .map(S3Object::size)
+                .reduce(Long::sum).orElse(0L);
     }
 
     /**
      * Provides a stream of all cache items.
      */
     public Stream<CacheItem> findAll() {
-        return flatMapObjectSummaries(s3.listObjects(bucket)).map(this::mapToCacheItem);
+        return s3.listObjectsV2Paginator(builder -> builder.bucket(bucket))
+                .stream()
+                .flatMap(r -> r.contents().stream())
+                .map(this::mapToCacheItem);
     }
 
     /**
      * Removes items from the cache.
+     *
      * @param keys Stream of keys which should be removed
      * @return count of removed items
      */
     public int delete(Stream<String> keys) {
-        return s3.deleteObjects(new DeleteObjectsRequest(bucket)
-                .withKeys(keys.toArray(String[]::new))
-        ).getDeletedObjects()
-                .size();
+        List<String> keyList = keys.toList();
+        keyList.forEach(key -> s3.deleteObject(b -> b.bucket(bucket).key(key)));
+        return keyList.size();
     }
 
     /**
      * Provides the size of a cache item in byte.
      */
     public long getContentLength(String key) {
-        return s3.getObjectMetadata(bucket, key).getContentLength();
+        return s3.headObject(builder -> builder.bucket(bucket).key(key)).contentLength();
     }
 
     /**
-     * Provides the {@link S3Object} assigned to a given key or null if it not exists.
+     * Provides the {@link ResponseInputStream} assigned to a given key or null if it not exists.
      */
-    public S3Object getS3Object(String key) {
-        return s3.getObject(new GetObjectRequest(bucket, key));
+    public ResponseInputStream<GetObjectResponse> getS3Object(String key) {
+        return s3.getObject(builder -> builder.bucket(bucket).key(key));
     }
 
     /**
@@ -96,18 +96,22 @@ public class CacheItemRepository {
      * timestamp, which means that last modification and last access can be considered as equals</b>
      */
     public void updateLastAccess(String key) {
-        ObjectMetadata metadata = s3.getObjectMetadata(bucket, key);
-        long lastAccessTime = Long.parseLong(metadata.getUserMetadata().getOrDefault(LAST_ACCESS, "0"));
+        HeadObjectResponse head = s3.headObject(builder -> builder.bucket(bucket).key(key));
+        Map<String, String> metadata = new HashMap<>(head.metadata());
+
+        long lastAccessTime = Long.parseLong(metadata.getOrDefault(LAST_ACCESS, "0"));
         long currentTime = System.currentTimeMillis();
 
         if (currentTime - lastAccessTime > TIME_THRESHOLD) {
-            // workaround for GCS: create a new metadata object and don't reuse the existing one
-            ObjectMetadata newMetadata = new ObjectMetadata();
-            newMetadata.setUserMetadata(metadata.getUserMetadata());
-            newMetadata.addUserMetadata(LAST_ACCESS, Long.toString(currentTime));
-            
-            // HACK: the only way to change the metadata of an existing object is to create a copy to itself
-            s3.copyObject(new CopyObjectRequest(bucket, key, bucket, key).withNewObjectMetadata(newMetadata));
+            metadata.put(LAST_ACCESS, Long.toString(currentTime));
+
+            s3.copyObject(builder ->
+                    builder.sourceBucket(bucket)
+                            .sourceKey(key)
+                            .destinationBucket(bucket)
+                            .destinationKey(key)
+                            .metadataDirective(MetadataDirective.REPLACE)
+                            .metadata(metadata));
         }
     }
 
@@ -151,26 +155,11 @@ public class CacheItemRepository {
      * Returns true if the object with the given exists, otherwise false.
      */
     public boolean exists(String key) {
-        return s3.doesObjectExist(bucket, key);
-    }
-
-    /**
-     * Creates an {@link java.io.OutputStream} for a given key. This can be used to write data directly to a new object in S3. Note that
-     * the md5 must be provided as 32 character string and not as a hex value.
-     */
-    public OutputStream createObjectOutputStream(String key, byte[] md5) {
-        return new S3OutputStream(s3, bucket, key, Base64.getEncoder().encodeToString(md5));
-    }
-
-    /**
-     * Returns true if the underlying bucket exists, otherwise false.
-     */
-    public boolean bucketExists() {
         try {
-            s3.headBucket(new HeadBucketRequest(bucket));
+            s3.headObject(builder -> builder.bucket(bucket).key(key));
             return true;
-        } catch (AmazonServiceException e) {
-            if (e.getStatusCode() == 404) {
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
                 return false;
             }
             throw e;
@@ -178,25 +167,37 @@ public class CacheItemRepository {
     }
 
     /**
-     * Collects the {@link S3ObjectSummary}s from a given {@link ObjectListing} and returns them as a {@link Stream}. If the
-     * {@link ObjectListing} is truncated (one batch of many) then the truncated ones are resolved and added to the {@link Stream} as well.
+     * Creates an {@link java.io.OutputStream} for a given key. This can be used to write data directly to a new object in S3.
      */
-    private Stream<S3ObjectSummary> flatMapObjectSummaries(ObjectListing listing) {
-        Stream<S3ObjectSummary> result = listing.getObjectSummaries().stream();
-
-        return listing.isTruncated() ? concat(result, flatMapObjectSummaries(s3.listNextBatchOfObjects(listing))) : result;
+    public OutputStream createObjectOutputStream(String key) {
+        return new S3OutputStream(s3, bucket, key);
     }
 
     /**
-     * Transforms a {@link S3ObjectSummary} object into a {@link CacheItem} object.
+     * Returns true if the underlying bucket exists, otherwise false.
      */
-    private CacheItem mapToCacheItem(S3ObjectSummary s3ObjectSummary) {
+    public boolean bucketExists() {
+        try {
+            s3.headBucket(builder -> builder.bucket(bucket));
+            return true;
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
+                return false;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Transforms a {@link S3Object} object into a {@link CacheItem} object.
+     */
+    private CacheItem mapToCacheItem(S3Object s3Object) {
         return new CacheItem(
-                s3ObjectSummary.getKey(),
-                s3ObjectSummary.getSize(),
+                s3Object.key(),
+                s3Object.size(),
                 // we just use the last modified timestamp here as last access time (assumption: last access and last modified are equals
                 // anyway), this saves one extra request (last access timestamp is stored as metadata)
-                s3ObjectSummary.getLastModified().getTime()
+                s3Object.lastModified().toEpochMilli()
         );
     }
 
@@ -205,32 +206,21 @@ public class CacheItemRepository {
             return null;
         }
 
-        ObjectListing listing = s3.listObjects(bucket, prefix);
-
-        // 1. no key with the same prefix exists
-        if (listing.getObjectSummaries().isEmpty()) {
-            return null;
-        }
-
-        // 2. one key with the same prefix exists
-        if (listing.getObjectSummaries().size() == 1) {
-            return listing.getObjectSummaries().get(0).getKey();
-        }
-
-        // 3. more than one key with the same prefix exists -> return the latest one
-        return flatMapObjectSummaries(listing)
+        return s3.listObjectsV2Paginator(builder -> builder.bucket(bucket).prefix(prefix))
+                .stream()
+                .flatMap(r -> r.contents().stream())
+                .map(S3Object::key)
                 .map(this::mapToKeyCreation)
                 .max(Comparator.comparing(KeyCreation::getCreation))
                 .map(KeyCreation::getKey)
                 .orElse(null);
     }
 
-    private KeyCreation mapToKeyCreation(S3ObjectSummary s3ObjectSummary) {
-        ObjectMetadata m = s3.getObjectMetadata(bucket, s3ObjectSummary.getKey());
-
+    private KeyCreation mapToKeyCreation(String key) {
+        HeadObjectResponse headObject = s3.headObject(builder -> builder.bucket(bucket).key(key));
         return new KeyCreation(
-                s3ObjectSummary.getKey(),
-                Long.parseLong(m.getUserMetadata().getOrDefault(CREATION, "0"))
+                key,
+                Long.parseLong(headObject.metadata().getOrDefault(CREATION, "0"))
         );
     }
 

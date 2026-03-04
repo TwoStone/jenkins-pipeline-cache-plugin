@@ -1,16 +1,15 @@
 package io.jenkins.plugins.pipeline.cache.agent;
 
-import static java.lang.String.format;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-
-import com.amazonaws.services.s3.model.S3Object;
-
 import hudson.FilePath;
 import hudson.remoting.VirtualChannel;
 import io.jenkins.plugins.pipeline.cache.CacheConfiguration;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+
+import java.io.File;
+import java.io.IOException;
+
+import static java.lang.String.format;
 
 /**
  * Extracts an existing tar archive from S3 to a given {@link FilePath}.
@@ -45,9 +44,9 @@ public class RestoreCallable extends AbstractMasterToAgentS3Callable {
 
         // do restore
         long startNanoTime = System.nanoTime();
-        try (S3Object s3Object = cacheItemRepository().getS3Object(key);
-             InputStream is = s3Object.getObjectContent()) {
-            new FilePath(path).untarFrom(is, FilePath.TarCompression.NONE);
+
+        try (ResponseInputStream<GetObjectResponse> s3Object = cacheItemRepository().getS3Object(key)) {
+            new FilePath(path).untarFrom(s3Object, FilePath.TarCompression.NONE);
         }
 
         // update last access timestamp

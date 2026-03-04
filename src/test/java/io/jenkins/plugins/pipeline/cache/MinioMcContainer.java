@@ -12,7 +12,7 @@ public class MinioMcContainer extends GenericContainer<MinioMcContainer> {
     private final MinioContainer minio;
 
     public MinioMcContainer(MinioContainer minio) {
-        super("minio/mc");
+        super("minio/mc:RELEASE.2024-10-02T08-27-28Z");
         this.minio = minio;
         dependsOn(minio);
         withNetwork(minio.getNetwork());
@@ -21,7 +21,7 @@ public class MinioMcContainer extends GenericContainer<MinioMcContainer> {
 
     @Override
     protected void containerIsStarted(InspectContainerResponse containerInfo) {
-        execSecure("mc config host add test-minio http://%s:9000 %s %s",
+        execSecure("mc alias set test-minio http://%s:9000 %s %s",
                 minio.getNetworkAliases().get(0),
                 minio.accessKey(),
                 minio.secretKey());

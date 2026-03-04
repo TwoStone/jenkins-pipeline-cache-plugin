@@ -1,24 +1,24 @@
 package io.jenkins.plugins.pipeline.cache;
 
-import java.io.IOException;
-import java.io.PrintStream;
-import java.io.Serializable;
-import java.util.Collections;
-import java.util.Set;
-
-import org.jenkinsci.plugins.workflow.steps.BodyExecutionCallback;
-import org.jenkinsci.plugins.workflow.steps.GeneralNonBlockingStepExecution;
-import org.jenkinsci.plugins.workflow.steps.Step;
-import org.jenkinsci.plugins.workflow.steps.StepContext;
-import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
-import org.kohsuke.stapler.DataBoundConstructor;
-import org.kohsuke.stapler.DataBoundSetter;
-
 import hudson.Extension;
 import hudson.FilePath;
 import hudson.model.TaskListener;
 import io.jenkins.plugins.pipeline.cache.agent.BackupCallable;
 import io.jenkins.plugins.pipeline.cache.agent.RestoreCallable;
+import org.jenkinsci.plugins.workflow.steps.BodyExecutionCallback;
+import org.jenkinsci.plugins.workflow.steps.GeneralNonBlockingStepExecution;
+import org.jenkinsci.plugins.workflow.steps.Step;
+import org.jenkinsci.plugins.workflow.steps.StepContext;
+import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
+import org.jenkinsci.plugins.workflow.steps.StepExecution;
+import org.kohsuke.stapler.DataBoundConstructor;
+import org.kohsuke.stapler.DataBoundSetter;
+
+import java.io.IOException;
+import java.io.PrintStream;
+import java.io.Serializable;
+import java.util.Collections;
+import java.util.Set;
 
 /**
  * Handles 'cache' step executions.<br><br>
@@ -71,7 +71,7 @@ public class CacheStep extends Step implements Serializable {
     }
 
     @Override
-    public CacheStepExecution start(StepContext context) throws Exception {
+    public StepExecution start(StepContext context) throws Exception {
         return new CacheStepExecution(context, this);
     }
 
