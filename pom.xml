@@ -120,6 +120,25 @@
         </plugins>
     </build>
 
+    <profiles>
+        <profile>
+            <id>benchmarks</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/*Benchmark.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
     <scm>
         <developerConnection>scm:git:ssh://git@github.com/j3t/jenkins-pipeline-cache-plugin.git</developerConnection>
       <tag>HEAD</tag>
