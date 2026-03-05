@@ -148,13 +148,14 @@ public class S3OutputStream extends OutputStream {
 
         // upload part
         int partNumber = completedParts.size() + 1;
+        int currentCount = count;
         UploadPartResponse uploadPartResponse = s3.uploadPart(builder -> {
             builder.bucket(bucket)
                     .key(key)
                     .uploadId(multipartUpload.uploadId())
                     .partNumber(partNumber)
-                    .contentLength((long) count);
-        }, RequestBody.fromInputStream(new ByteArrayInputStream(buf, 0, count), count));
+                    .contentLength((long) currentCount);
+        }, RequestBody.fromInputStream(new ByteArrayInputStream(buf, 0, currentCount), currentCount));
 
         // store part ID (required for the final step)
         completedParts.add(CompletedPart.builder()
@@ -167,7 +168,7 @@ public class S3OutputStream extends OutputStream {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         if (!open) {
             return;
         }
