@@ -12,7 +12,6 @@ import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
-import java.io.OutputStream;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -20,9 +19,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
-public class CacheItemRepository {
+public class CacheItemRepository implements AutoCloseable {
 
     static final String LAST_ACCESS = "last_access";
     static final String CREATION = "creation";
@@ -89,7 +89,11 @@ public class CacheItemRepository {
      */
     public int delete(Stream<String> keys) {
         List<String> keyList = keys.toList();
-        keyList.forEach(key -> s3.deleteObject(b -> b.bucket(bucket).key(key)));
+        // Fire all deletes concurrently via the async client
+        List<? extends CompletableFuture<?>> futures = keyList.stream()
+                .map(key -> s3Async.deleteObject(b -> b.bucket(bucket).key(key)))
+                .toList();
+        futures.forEach(CompletableFuture::join);
         return keyList.size();
     }
 
@@ -185,7 +189,7 @@ public class CacheItemRepository {
     /**
      * Creates an {@link java.io.OutputStream} for a given key. This can be used to write data directly to a new object in S3.
      */
-    public OutputStream createObjectOutputStream(String key) {
+    public S3OutputStream createObjectOutputStream(String key) {
         return new S3OutputStream(s3Async, bucket, key);
     }
 
@@ -202,6 +206,12 @@ public class CacheItemRepository {
             }
             throw e;
         }
+    }
+
+    @Override
+    public void close() {
+        s3.close();
+        s3Async.close();
     }
 
     /**
@@ -222,10 +232,17 @@ public class CacheItemRepository {
             return null;
         }
 
-        return s3.listObjectsV2Paginator(builder -> builder.bucket(bucket).prefix(prefix))
+        List<String> keys = s3.listObjectsV2Paginator(builder -> builder.bucket(bucket).prefix(prefix))
                 .stream()
                 .flatMap(r -> r.contents().stream())
                 .map(S3Object::key)
+                .toList();
+
+        if (keys.isEmpty()) {
+            return null;
+        }
+
+        return keys.stream()
                 .map(this::mapToKeyCreation)
                 .max(Comparator.comparing(KeyCreation::getCreation))
                 .map(KeyCreation::getKey)
@@ -233,11 +250,8 @@ public class CacheItemRepository {
     }
 
     private KeyCreation mapToKeyCreation(String key) {
-        HeadObjectResponse headObject = s3.headObject(builder -> builder.bucket(bucket).key(key));
-        return new KeyCreation(
-                key,
-                Long.parseLong(headObject.metadata().getOrDefault(CREATION, "0"))
-        );
+        HeadObjectResponse head = s3.headObject(builder -> builder.bucket(bucket).key(key));
+        return new KeyCreation(key, Long.parseLong(head.metadata().getOrDefault(CREATION, "0")));
     }
 
     private static class KeyCreation {

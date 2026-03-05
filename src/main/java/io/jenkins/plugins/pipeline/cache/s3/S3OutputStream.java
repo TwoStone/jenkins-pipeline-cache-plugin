@@ -36,6 +36,7 @@ public class S3OutputStream extends OutputStream {
     private final CompletableFuture<PutObjectResponse> uploadFuture;
     private final OutputStream delegate;
     private boolean open = true;
+    private long bytesWritten;
 
     /**
      * Creates a new output stream that uploads data to S3.
@@ -57,14 +58,23 @@ public class S3OutputStream extends OutputStream {
         this.delegate = body.outputStream();
     }
 
+    /**
+     * Returns the total number of bytes written to this stream.
+     */
+    public long getBytesWritten() {
+        return bytesWritten;
+    }
+
     @Override
     public void write(int b) throws IOException {
         delegate.write(b);
+        bytesWritten++;
     }
 
     @Override
     public void write(byte[] b, int off, int len) throws IOException {
         delegate.write(b, off, len);
+        bytesWritten += len;
     }
 
     @Override
