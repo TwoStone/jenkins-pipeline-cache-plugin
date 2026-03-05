@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      releaseVersion:
+        description: 'Release version (e.g. 0.2.2). Leave empty to use the current SNAPSHOT version without the -SNAPSHOT suffix.'
+        required: false
+        type: string
+      developmentVersion:
+        description: 'Next development version (e.g. 0.2.3-SNAPSHOT). Leave empty to auto-increment the patch version.'
+        required: false
+        type: string
+      dryRun:
+        description: 'Dry run — validate without pushing tags or deploying artifacts'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 21
+
+      - name: Cache local Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-release-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-release-
+            ${{ runner.os }}-maven-
+
+      - name: Configure Git for release commits
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Configure HTTPS authentication so maven-release-plugin can push
+          git config url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          git config url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "ssh://git@github.com/"
+          git config url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "git@github.com:"
+
+      - name: Run tests
+        run: mvn -B verify
+
+      - name: Prepare and perform release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_ARGS="-B -ntp"
+
+          if [[ -n "${{ inputs.releaseVersion }}" ]]; then
+            RELEASE_ARGS="$RELEASE_ARGS -DreleaseVersion=${{ inputs.releaseVersion }}"
+          fi
+          if [[ -n "${{ inputs.developmentVersion }}" ]]; then
+            RELEASE_ARGS="$RELEASE_ARGS -DdevelopmentVersion=${{ inputs.developmentVersion }}"
+          fi
+
+          if [[ "${{ inputs.dryRun }}" == "true" ]]; then
+            echo "::notice::Performing dry run — no tags or artifacts will be pushed"
+            mvn $RELEASE_ARGS release:prepare -DdryRun=true
+          else
+            mvn $RELEASE_ARGS \
+              release:prepare release:perform \
+              -Darguments="-DskipTests"
+          fi
+
+      - name: Extract release version from tag
+        if: inputs.dryRun != true
+        id: release-info
+        run: |
+          TAG=$(git describe --tags --abbrev=0)
+          VERSION="${TAG#jenkins-pipeline-cache-}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "::notice::Released version $VERSION (tag: $TAG)"
+
+      - name: Create GitHub Release
+        if: inputs.dryRun != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.release-info.outputs.tag }}"
+          VERSION="${{ steps.release-info.outputs.version }}"
+
+          # Find the .hpi artifact built during release:perform
+          HPI_FILE=$(find . -path "*/target/checkout/target/jenkins-pipeline-cache.hpi" -type f | head -1)
+          if [[ -z "$HPI_FILE" ]]; then
+            HPI_FILE=$(find . -name "jenkins-pipeline-cache.hpi" -type f | head -1)
+          fi
+
+          RELEASE_ARGS=(
+            "$TAG"
+            --title "v${VERSION}"
+            --generate-notes
+          )
+
+          if [[ -n "$HPI_FILE" ]]; then
+            RELEASE_ARGS+=("$HPI_FILE#jenkins-pipeline-cache-${VERSION}.hpi")
+          fi
+
+          gh release create "${RELEASE_ARGS[@]}"
