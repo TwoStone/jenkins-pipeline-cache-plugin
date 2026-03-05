@@ -123,3 +123,21 @@ jobs:
           fi
 
           gh release create "${RELEASE_ARGS[@]}"
+
+      - name: Update version in README
+        if: inputs.dryRun != true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.release-info.outputs.version }}"
+
+          # Update the plugin.txt download URL in README.md
+          sed -i "s|/releases/download/jenkins-pipeline-cache-[^/]*/jenkins-pipeline-cache-[^.]*\.[^.]*\.[^.]*\.hpi|/releases/download/jenkins-pipeline-cache-${VERSION}/jenkins-pipeline-cache-${VERSION}.hpi|g" README.md
+
+          if git diff --quiet README.md; then
+            echo "::notice::README.md already up to date"
+          else
+            git add README.md
+            git commit -m "docs: update README download link to v${VERSION}"
+            git push
+          fi

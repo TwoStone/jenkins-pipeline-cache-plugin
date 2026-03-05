@@ -1,4 +1,4 @@
-[![CI](https://github.com/j3t/jenkins-pipeline-cache-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/j3t/jenkins-pipeline-cache-plugin/actions/workflows/ci.yml)
+[![CI](https://github.com/TwoStone/jenkins-pipeline-cache-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/TwoStone/jenkins-pipeline-cache-plugin/actions/workflows/ci.yml)
 
 A cloud native file cache for Jenkins pipelines. The files are stored in a S3-Bucket. The functionality is very similar to the one provided by [GitHub Actions](https://docs.github.com/en/actions/advanced-guides/caching-dependencies-to-speed-up-workflows).
 
@@ -6,12 +6,12 @@ A cloud native file cache for Jenkins pipelines. The files are stored in a S3-Bu
 The primary goal is to have a file cache for so called `hot agent nodes`. Those nodes are started on demand when an execution is scheduled by Jenkins and killed after the execution is finished (e.g. by using the [kubernetes-plugin](https://github.com/jenkinsci/kubernetes-plugin) or [nomad-plugin](https://github.com/jenkinsci/nomad-plugin)). This is fine but has also some drawbacks and some of them can be solved by having a file cache in place (e.g. to cache build dependencies or statistic data for code analysis or whatever data you want to be present for the next build execution).
 
 # Installation
-* Download the latest version (see [releases](https://github.com/j3t/jenkins-pipeline-cache-plugin/releases))
+* Download the latest version (see [releases](https://github.com/TwoStone/jenkins-pipeline-cache-plugin/releases))
 * Complete the installation via `Manage Jenkins -> Manage Plugins -> Advanced -> Upload Plugin`
 
 For automated installations via `plugin.txt` you can use an entry like below:
 ```
-jenkins-pipeline-cache::https://github.com/j3t/jenkins-pipeline-cache-plugin/releases/download/0.2.1/jenkins-pipeline-cache-0.2.1.hpi
+jenkins-pipeline-cache::https://github.com/TwoStone/jenkins-pipeline-cache-plugin/releases/download/jenkins-pipeline-cache-0.3.0/jenkins-pipeline-cache-0.3.0.hpi
 ```
 
 # Configuration
@@ -82,6 +82,28 @@ As a general advice, sensitive data or data which cannot be restored from somewh
 * the S3 object contains metadata
   * CREATED - Unix time is ms when the cache was created
   * LAST_ACCESS - Unix time is ms when the cache was accessed last
+
+# Development
+
+## CI
+Every push and pull request triggers the [CI workflow](.github/workflows/ci.yml) which runs `mvn verify` and uploads the `.hpi` artifact.
+
+## Benchmarks
+Pull requests automatically run the [benchmark workflow](.github/workflows/benchmark.yml). It executes the benchmark suite on both the base branch and the PR head, then posts a comparison table as a PR comment showing throughput and latency deltas.
+
+To run benchmarks locally:
+```bash
+mvn -B verify -Pbenchmarks
+```
+
+## Releasing
+Releases are performed via the [release workflow](.github/workflows/release.yml) which is triggered manually from the Actions tab.
+
+1. Go to **Actions → Release → Run workflow**
+2. Optionally specify a release version and next development version
+3. The workflow runs tests, executes `mvn release:prepare release:perform`, creates a Git tag, and publishes a GitHub Release with the `.hpi` artifact
+
+A **dry run** option is available to validate the release process without pushing any tags or artifacts.
 
 # Further reading
 * [CacheStep.java](./src/main/java/io/jenkins/plugins/pipeline/cache/CacheStep.java) - implements the `cache` pipeline step
