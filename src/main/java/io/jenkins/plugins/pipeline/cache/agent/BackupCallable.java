@@ -4,10 +4,10 @@ import hudson.FilePath;
 import hudson.remoting.VirtualChannel;
 import hudson.util.DirScanner;
 import io.jenkins.plugins.pipeline.cache.CacheConfiguration;
+import io.jenkins.plugins.pipeline.cache.s3.S3OutputStream;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
 
 import static java.lang.String.format;
 
@@ -57,13 +57,15 @@ public class BackupCallable extends AbstractMasterToAgentS3Callable {
 
         // do backup — stream tar archive directly to S3
         long start = System.nanoTime();
-        try (OutputStream outToS3 = cacheItemRepository().createObjectOutputStream(key)) {
+        long uploadedBytes;
+        try (S3OutputStream outToS3 = cacheItemRepository().createObjectOutputStream(key)) {
             new FilePath(path).tar(outToS3, new DirScanner.Glob(includes, excludes, false));
+            uploadedBytes = outToS3.getBytesWritten();
         }
 
         return new ResultBuilder()
                 .withInfo(format("Cache saved successfully (%s)", key))
-                .withInfo(performanceString(key, start))
+                .withInfo(performanceString(uploadedBytes, start))
                 .build();
     }
 

@@ -1,6 +1,7 @@
 package io.jenkins.plugins.pipeline.cache;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
@@ -39,37 +40,41 @@ public class CacheCleanupTask extends AsyncPeriodicWork {
         }
 
         // setup
-        CacheItemRepository repo = new CacheItemRepository(
+        try (CacheItemRepository repo = new CacheItemRepository(
                 config.getUsername(),
                 config.getPassword().getPlainText(),
                 config.getRegion(),
                 config.getEndpoint(),
                 config.getBucket()
-        );
-        long thresholdSize = config.getThreshold() * 1024 * 1024;
-        long totalSize = repo.getTotalCacheSize();
+        )) {
+            long thresholdSize = config.getThreshold() * 1024 * 1024;
 
-        // make sure threshold is exceeded
-        if (thresholdSize < totalSize) {
-            // calculate how much data must be removed so that the threshold is not exceeded anymore
-            AtomicLong bytesToRemove = new AtomicLong(totalSize - thresholdSize);
+            // Single listing pass: collect all items and compute total size
+            List<CacheItem> allItems = repo.findAll().toList();
+            long totalSize = allItems.stream().mapToLong(CacheItem::getContentLength).sum();
 
-            // collect last recently used items until threshold is not exceeded anymore
-            Stream<String> keysToDelete = repo.findAll()
-                    .sorted(Comparator.comparing(CacheItem::getLastAccess))
-                    .filter(item -> {
-                        if (bytesToRemove.get() <= 0) {
-                            return false;
-                        }
-                        bytesToRemove.addAndGet(-item.getContentLength());
-                        return true;
-                    })
-                    .map(CacheItem::getKey);
+            // make sure threshold is exceeded
+            if (thresholdSize < totalSize) {
+                // calculate how much data must be removed so that the threshold is not exceeded anymore
+                AtomicLong bytesToRemove = new AtomicLong(totalSize - thresholdSize);
 
-            // remove them
-            int count = repo.delete(keysToDelete);
+                // collect last recently used items until threshold is not exceeded anymore
+                Stream<String> keysToDelete = allItems.stream()
+                        .sorted(Comparator.comparing(CacheItem::getLastAccess))
+                        .filter(item -> {
+                            if (bytesToRemove.get() <= 0) {
+                                return false;
+                            }
+                            bytesToRemove.addAndGet(-item.getContentLength());
+                            return true;
+                        })
+                        .map(CacheItem::getKey);
 
-            LOGGER.info(String.format("removed %s item(s)", count));
+                // remove them
+                int count = repo.delete(keysToDelete);
+
+                LOGGER.info(String.format("removed %s item(s)", count));
+            }
         }
     }
 

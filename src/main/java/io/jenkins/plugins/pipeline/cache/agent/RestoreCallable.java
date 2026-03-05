@@ -44,8 +44,10 @@ public class RestoreCallable extends AbstractMasterToAgentS3Callable {
 
         // do restore
         long startNanoTime = System.nanoTime();
+        long contentLength;
 
         try (ResponseInputStream<GetObjectResponse> s3Object = cacheItemRepository().getS3Object(key)) {
+            contentLength = s3Object.response().contentLength();
             new FilePath(path).untarFrom(s3Object, FilePath.TarCompression.NONE);
         }
 
@@ -54,7 +56,7 @@ public class RestoreCallable extends AbstractMasterToAgentS3Callable {
 
         return new ResultBuilder()
                 .withInfo(format("Cache restored successfully (%s)", key))
-                .withInfo(performanceString(key, startNanoTime))
+                .withInfo(performanceString(contentLength, startNanoTime))
                 .build();
     }
 

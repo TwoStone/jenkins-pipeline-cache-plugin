@@ -122,9 +122,7 @@ public class CacheConfiguration extends GlobalConfiguration implements Serializa
             @QueryParameter String endpoint) {
         Objects.requireNonNull(Jenkins.get()).checkPermission(Jenkins.ADMINISTER);
 
-        try {
-            CacheItemRepository repo = new CacheItemRepository(username, password, region, endpoint, bucket);
-
+        try (CacheItemRepository repo = new CacheItemRepository(username, password, region, endpoint, bucket)) {
             if (repo.bucketExists()) {
                 return FormValidation.ok("OK");
             }

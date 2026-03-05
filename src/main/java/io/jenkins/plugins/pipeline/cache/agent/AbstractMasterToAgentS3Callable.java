@@ -25,13 +25,15 @@ public abstract class AbstractMasterToAgentS3Callable extends MasterToSlaveFileC
     protected CacheItemRepository cacheItemRepository() {
         if (cacheItemRepository == null) {
             synchronized (this) {
-                cacheItemRepository = new CacheItemRepository(
-                        config.getUsername(),
-                        config.getPassword().getPlainText(),
-                        config.getRegion(),
-                        config.getEndpoint(),
-                        config.getBucket()
-                );
+                if (cacheItemRepository == null) {
+                    cacheItemRepository = new CacheItemRepository(
+                            config.getUsername(),
+                            config.getPassword().getPlainText(),
+                            config.getRegion(),
+                            config.getEndpoint(),
+                            config.getBucket()
+                    );
+                }
             }
         }
 
@@ -60,9 +62,8 @@ public abstract class AbstractMasterToAgentS3Callable extends MasterToSlaveFileC
         }
     }
 
-    protected String performanceString(String key, long startNanoTime) {
+    protected String performanceString(long size, long startNanoTime) {
         double duration = (System.nanoTime() - startNanoTime) / 1000000000D;
-        long size = cacheItemRepository().getContentLength(key);
         long speed = (long) (size / duration);
         return String.format("%s bytes in %.2f secs (%s bytes/sec)", size, duration, speed);
     }
