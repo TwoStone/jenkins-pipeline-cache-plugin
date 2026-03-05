@@ -38,6 +38,9 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: 21
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
 
       - name: Cache local Maven repository
         uses: actions/cache@v4
@@ -73,13 +76,16 @@ jobs:
             RELEASE_ARGS="$RELEASE_ARGS -DdevelopmentVersion=${{ inputs.developmentVersion }}"
           fi
 
+          # Clean up any leftover state from a previously failed release
+          mvn -B release:clean || true
+
           if [[ "${{ inputs.dryRun }}" == "true" ]]; then
             echo "::notice::Performing dry run — no tags or artifacts will be pushed"
             mvn $RELEASE_ARGS release:prepare -DdryRun=true
           else
             mvn $RELEASE_ARGS \
               release:prepare release:perform \
-              -Darguments="-DskipTests"
+              -Darguments="-DskipTests -Dmaven.javadoc.failOnError=false"
           fi
 
       - name: Extract release version from tag

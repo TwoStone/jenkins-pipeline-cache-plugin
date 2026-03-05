@@ -49,8 +49,8 @@ public class S3OutputStream extends OutputStream {
 
     /**
      * The number of valid bytes in the buffer. This value is always
-     * in the range <tt>0</tt> through <tt>buf.length</tt>; elements
-     * <tt>buf[0]</tt> through <tt>buf[count-1]</tt> contain valid
+     * in the range {@code 0} through {@code buf.length}; elements
+     * {@code buf[0]} through {@code buf[count-1]} contain valid
      * byte data.
      */
     protected int count;
