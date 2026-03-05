@@ -6,10 +6,15 @@ import io.jenkins.plugins.pipeline.cache.s3.S3OutputStream;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import java.io.OutputStream;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -229,22 +234,22 @@ public class CacheBenchmark {
     }
 
     @Test
-    public void benchmarkVaryingBufferSizes() throws Exception {
+    public void benchmarkVaryingPartSizes() throws Exception {
         int payloadSize = 30 * MB;
         byte[] payload = generateRandomBytes(payloadSize);
-        int[] bufferSizes = {5 * MB, 10 * MB, 20 * MB};
+        long[] partSizes = {5L * MB, 10L * MB, 20L * MB};
 
-        for (int bufferSize : bufferSizes) {
-            String key = "bench-bufsize-" + (bufferSize / MB) + "mb-" + UUID.randomUUID();
+        for (long partSize : partSizes) {
+            String key = "bench-partsize-" + (partSize / MB) + "mb-" + UUID.randomUUID();
 
             long nanos = timedRun(() -> {
                 try (S3OutputStream out = new S3OutputStream(
-                        createS3Client(), bucket, key, bufferSize)) {
+                        createS3AsyncClient(partSize), bucket, key)) {
                     out.write(payload);
                 }
             });
 
-            reportResult("buffer-size-" + (bufferSize / MB) + "MB (30 MB payload)", nanos, payloadSize);
+            reportResult("part-size-" + (partSize / MB) + "MB (30 MB payload)", nanos, payloadSize);
         }
     }
 
@@ -430,6 +435,20 @@ public class CacheBenchmark {
                         software.amazon.awssdk.auth.credentials.StaticCredentialsProvider.create(
                                 software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create(
                                         minio.accessKey(), minio.secretKey())))
+                .build();
+    }
+
+    private S3AsyncClient createS3AsyncClient(long partSize) {
+        return S3AsyncClient.builder()
+                .multipartEnabled(true)
+                .multipartConfiguration(cfg -> cfg
+                        .minimumPartSizeInBytes(partSize)
+                        .thresholdInBytes(partSize))
+                .forcePathStyle(true)
+                .region(Region.of("us-west-1"))
+                .endpointOverride(URI.create(minio.getExternalAddress()))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(minio.accessKey(), minio.secretKey())))
                 .build();
     }
 

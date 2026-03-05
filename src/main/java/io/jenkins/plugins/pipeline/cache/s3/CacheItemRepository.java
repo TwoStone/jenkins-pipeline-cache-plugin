@@ -4,6 +4,7 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
@@ -28,15 +29,30 @@ public class CacheItemRepository {
     private static final long TIME_THRESHOLD = 5 * 60 * 1000L; // 5 minutes
 
     private final S3Client s3;
+    private final S3AsyncClient s3Async;
     private final String bucket;
 
     public CacheItemRepository(String username, String password, String region, String endpoint, String bucket) {
         this.s3 = createS3Client(username, password, endpoint, region);
+        this.s3Async = createS3AsyncClient(username, password, endpoint, region);
         this.bucket = bucket;
     }
 
     protected S3Client createS3Client(String username, String password, String endpoint, String region) {
         return S3Client.builder()
+                .forcePathStyle(true)
+                .region(Region.of(region))
+                .endpointOverride(URI.create(endpoint))
+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(username, password)))
+                .build();
+    }
+
+    protected S3AsyncClient createS3AsyncClient(String username, String password, String endpoint, String region) {
+        return S3AsyncClient.builder()
+                .multipartEnabled(true)
+                .multipartConfiguration(cfg -> cfg
+                        .minimumPartSizeInBytes(S3OutputStream.DEFAULT_PART_SIZE)
+                        .thresholdInBytes(S3OutputStream.DEFAULT_PART_SIZE))
                 .forcePathStyle(true)
                 .region(Region.of(region))
                 .endpointOverride(URI.create(endpoint))
@@ -170,7 +186,7 @@ public class CacheItemRepository {
      * Creates an {@link java.io.OutputStream} for a given key. This can be used to write data directly to a new object in S3.
      */
     public OutputStream createObjectOutputStream(String key) {
-        return new S3OutputStream(s3, bucket, key);
+        return new S3OutputStream(s3Async, bucket, key);
     }
 
     /**
