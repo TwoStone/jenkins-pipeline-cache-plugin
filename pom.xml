@@ -160,9 +160,9 @@
     </profiles>
 
     <scm>
-        <developerConnection>scm:git:ssh://git@github.com/TwoStone/jenkins-pipeline-cache-plugin.git</developerConnection>
-      <tag>HEAD</tag>
-  </scm>
+        <developerConnection>scm:git:https://github.com/TwoStone/jenkins-pipeline-cache-plugin.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
 
     <distributionManagement>
         <repository>

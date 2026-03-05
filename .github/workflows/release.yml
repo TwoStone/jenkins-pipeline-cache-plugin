@@ -49,13 +49,13 @@ jobs:
             ${{ runner.os }}-maven-
 
       - name: Configure Git for release commits
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Configure HTTPS authentication so maven-release-plugin can push
-          git config url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
-          git config url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "ssh://git@github.com/"
-          git config url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "git@github.com:"
+          # Configure HTTPS authentication via credential helper
+          git config credential.helper '!f() { echo "username=x-access-token"; echo "password=${GITHUB_TOKEN}"; }; f'
 
       - name: Run tests
         run: mvn -B verify
