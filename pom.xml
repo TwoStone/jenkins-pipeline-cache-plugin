@@ -152,6 +152,8 @@
                             <includes>
                                 <include>**/*Benchmark.java</include>
                             </includes>
+                            <!-- Print [BENCHMARK] lines to stdout so the CI workflow can grep them -->
+                            <redirectTestOutputToFile>false</redirectTestOutputToFile>
                         </configuration>
                     </plugin>
                 </plugins>
