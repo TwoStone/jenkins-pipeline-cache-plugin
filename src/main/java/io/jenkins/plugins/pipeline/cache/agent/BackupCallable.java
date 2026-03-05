@@ -4,7 +4,6 @@ import hudson.FilePath;
 import hudson.remoting.VirtualChannel;
 import hudson.util.DirScanner;
 import io.jenkins.plugins.pipeline.cache.CacheConfiguration;
-import org.apache.commons.codec.digest.DigestUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -56,21 +55,10 @@ public class BackupCallable extends AbstractMasterToAgentS3Callable {
                     .build();
         }
 
-        // do backup
+        // do backup — stream tar archive directly to S3
         long start = System.nanoTime();
-        FilePath tmp = new FilePath(File.createTempFile(String.format("cache-item-%s-%d", key, start), null));
-        try (OutputStream outToTmp = tmp.write()) {
-            // create tar archive locally
-            new FilePath(path).tar(outToTmp, new DirScanner.Glob(includes, excludes, false));
-            // create checksum
-            byte[] md5 = DigestUtils.md5(tmp.read());
-            // upload it to S3
-            try (OutputStream outToS3 = cacheItemRepository().createObjectOutputStream(key)) {
-                tmp.copyTo(outToS3);
-            }
-        } finally {
-            // delete local tar archive
-            tmp.delete();
+        try (OutputStream outToS3 = cacheItemRepository().createObjectOutputStream(key)) {
+            new FilePath(path).tar(outToS3, new DirScanner.Glob(includes, excludes, false));
         }
 
         return new ResultBuilder()
